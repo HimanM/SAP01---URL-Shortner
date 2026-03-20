@@ -17,11 +17,11 @@ def run_worker():
 
     consumer = Consumer(conf)
     
-    # Wait for Kafka to be fully ready
+    # Wait for topics to be available/created
     time.sleep(10)
     
-    consumer.subscribe(['url_clicks'])
-    print("Worker started. Listening to 'url_clicks' topic...")
+    consumer.subscribe(['url_clicks', 'system_logs'])
+    print("Worker started. Listening to 'url_clicks' and 'system_logs' topics...")
     
     try:
         conn = get_db_connection()
@@ -40,27 +40,49 @@ def run_worker():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
                     # End of partition event
                     continue
+                elif msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                    time.sleep(1)
+                    continue
                 else:
-                    raise KafkaException(msg.error())
+                    print(f"Kafka Error: {msg.error()}")
+                    time.sleep(1)
+                    continue
             
             # Process Message
+            topic = msg.topic()
             val = msg.value().decode('utf-8')
             event = json.loads(val)
             
-            short_code = event.get('short_code')
-            ip_address = event.get('ip_address')
-            user_agent = event.get('user_agent')
-            
-            try:
-                cur.execute(
-                    "INSERT INTO clicks (short_code, ip_address, user_agent) VALUES (%s, %s, %s)",
-                    (short_code, ip_address, user_agent)
-                )
-                conn.commit()
-                print(f"Recorded click for {short_code}")
-            except Exception as e:
-                print(f"DB Error: {e}")
-                conn.rollback()
+            if topic == 'url_clicks':
+                short_code = event.get('short_code')
+                ip_address = event.get('ip_address')
+                user_agent = event.get('user_agent')
+                
+                try:
+                    cur.execute(
+                        "INSERT INTO clicks (short_code, ip_address, user_agent) VALUES (%s, %s, %s)",
+                        (short_code, ip_address, user_agent)
+                    )
+                    conn.commit()
+                    print(f"Recorded click for {short_code}")
+                except Exception as e:
+                    print(f"DB Error: {e}")
+                    conn.rollback()
+            elif topic == 'system_logs':
+                level = event.get('level')
+                message = event.get('message')
+                source = event.get('source')
+                
+                try:
+                    cur.execute(
+                        "INSERT INTO system_logs (level, message, source) VALUES (%s, %s, %s)",
+                        (level, message, source)
+                    )
+                    conn.commit()
+                    print(f"Recorded log: {message}")
+                except Exception as e:
+                    print(f"DB Log Error: {e}")
+                    conn.rollback()
 
     except KeyboardInterrupt:
         pass

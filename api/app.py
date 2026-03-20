@@ -12,8 +12,18 @@ from config import Config
 app = Flask(__name__)
 
 # Setup connections
-def get_db_connection():
-    return psycopg2.connect(host=Config.DB_HOST, database=Config.DB_NAME, user=Config.DB_USER, password=Config.DB_PASS)
+def get_db_connection(replica=False):
+    host = Config.DB_REPLICA_HOST if replica else Config.DB_HOST
+    return psycopg2.connect(host=host, database=Config.DB_NAME, user=Config.DB_USER, password=Config.DB_PASS)
+
+def log_system_event(level, msg):
+    if producer:
+        try:
+            event = {"level": level, "message": msg, "source": "api"}
+            producer.produce('system_logs', value=json.dumps(event).encode('utf-8'))
+            producer.flush(0)
+        except:
+            pass
 
 r = redis.Redis(host=Config.REDIS_HOST, port=Config.REDIS_PORT, db=0, decode_responses=True)
 
@@ -45,6 +55,7 @@ def shorten_url():
             (short_code, original_url)
         )
         conn.commit()
+        log_system_event("INFO", f"DB Write (Primary): Created short_code '{short_code}'")
     except Exception as e:
         conn.rollback()
         return jsonify({"error": str(e)}), 500
@@ -65,12 +76,15 @@ def redirect_to_url(short_code):
     
     if cached_url:
         target_url = cached_url
+        log_system_event("INFO", f"Cache Hit: Redis returned URL for '{short_code}'")
     else:
+        log_system_event("WARN", f"Cache Miss: '{short_code}' not in Redis. Falling back to DB Replica.")
         # Fallback to DB
-        conn = get_db_connection()
+        conn = get_db_connection(replica=True)
         cur = conn.cursor()
         cur.execute("SELECT original_url FROM urls WHERE short_code = %s", (short_code,))
         res = cur.fetchone()
+        log_system_event("INFO", f"DB Read (Replica): Queried short_code '{short_code}'")
         cur.close()
         conn.close()
         

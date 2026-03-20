@@ -72,5 +72,19 @@ def get_system_stats():
         cur.close()
         conn.close()
 
+@app.route('/logs', methods=['GET'])
+def get_system_logs():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute("SELECT level, message, source, created_at FROM system_logs ORDER BY created_at DESC LIMIT 50")
+        logs = cur.fetchall()
+        return jsonify(logs)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001)

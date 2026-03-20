@@ -3,6 +3,7 @@ import os
 class Config:
     BASE_URL = os.getenv("BASE_URL", "http://localhost:8080")
     DB_HOST = os.getenv("DB_HOST", "postgres-primary")
+    DB_REPLICA_HOST = os.getenv("DB_REPLICA_HOST", "url-postgres-replica")
     DB_USER = os.getenv("POSTGRES_USER", "postgres")
     DB_PASS = os.getenv("POSTGRES_PASSWORD", "password")
     DB_NAME = os.getenv("POSTGRES_DB", "urls")
