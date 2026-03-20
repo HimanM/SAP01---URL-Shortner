@@ -58,6 +58,27 @@ graph TD
     end
 ```
 
+## Screenshots
+
+The project's UI and tracing dashboards.
+
+<figure style="max-width:1100px; margin:0 0 12px 0;">
+    <img src="docs/landingpage.png" alt="Landing Page" style="width:100%; height:auto; border:1px solid #e6e6e6; border-radius:6px;">
+    <figcaption style="font-size:12px; color:#555;">Main page (frontend)</figcaption>
+</figure>
+
+<div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
+    <figure style="flex:1 1 48%; min-width:260px; margin:0;">
+        <img src="docs/analyticspage.png" alt="Analytics Page" style="width:100%; height:auto; border:1px solid #e6e6e6; border-radius:6px;">
+        <figcaption style="font-size:12px; color:#555;">Analytics dashboard</figcaption>
+    </figure>
+    <figure style="flex:1 1 48%; min-width:260px; margin:0;">
+        <img src="docs/eventtracepage.png" alt="Event Trace" style="width:100%; height:auto; border:1px solid #e6e6e6; border-radius:6px;">
+        <figcaption style="font-size:12px; color:#555;">Event trace and system logs view</figcaption>
+    </figure>
+</div>
+
+
 ## Deep-Dive Layers
 
 ### 1. Load Balancing & Delivery Layer
