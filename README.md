@@ -29,40 +29,10 @@ https://github.com/user-attachments/assets/93a38078-1ec1-4b50-b4c6-c3c408f8e8a9
 
 The core philosophy revolves around decoupling reads from writes, enforcing stateless compute layers, and moving heavy metrics calculations completely out of the critical rendering path.
 
-```mermaid
-graph TD
-    Client((Client App)) -.->|HTTP 3000| FrontendNginx[Frontend Nginx Container]
-    Client -.->|HTTP 8000| MainNginx[Primary Nginx Load Balancer]
-    
-    subgraph Frontend Subsystem
-        FrontendNginx <-->|Serves Static Files| React[React SPA Interface]
-        FrontendNginx -.->|Proxies /api| MainNginx
-    end
-
-    subgraph Service Tier
-        MainNginx <-->|/api| API(Python Flask API Service)
-        MainNginx <-->|/analytics| Analytics(Python Analytics API)
-    end
-    
-    subgraph Storage Tier
-        API -->|Insert URL| PrimaryDb[(PostgreSQL Primary Database)]
-        PrimaryDb -.->|Async Replication| ReplicaDb[(PostgreSQL Read Replica)]
-        API <-->|Redis Lookups| Redis[(Redis Speed Cache)]
-        API -->|Fallback Cache Miss| ReplicaDb
-    end
-    
-    subgraph Event Streaming Pipeline
-        API -->|Publish url_clicks| Kafka{{Kafka Event Broker}}
-        API -->|Publish system_logs| Kafka
-        Worker(Python Ingestion Worker) -->|Consume Topics| Kafka
-    end
-    
-    subgraph Analytics Data Layer
-        Worker -->|Insert click metadata| AnalyticsDb[(PostgreSQL Analytics Database)]
-        Worker -->|Insert system logs| AnalyticsDb
-        Analytics <-->|Select Metrics| AnalyticsDb
-    end
-```
+<figure style="max-width:1100px; margin:0 0 12px 0;">
+    <img src="docs/ArchitectureDiagram.png" alt="Architecture diagram" style="width:100%; height:auto; border:1px solid #e6e6e6; border-radius:6px;">
+    <figcaption style="font-size:12px; color:#555;">Architecture diagram (docs/.icons/ArchitectureDiagram.png)</figcaption>
+</figure>
 
 ## Screenshots
 
@@ -184,14 +154,58 @@ SAP01-URL-Shortner/
 └── README.md                  # System operation definitions
 ```
 
+## Technology Stack
+
+The infrastructure leverages a modern, highly decoupled stack to ensure maximum performance and maintainability:
+
+### Frontend
+*   **React 19**: Modern SPA framework utilizing concurrent rendering features.
+*   **Vite 8**: Ultra-fast next-generation frontend tooling for rapid development and optimized builds.
+*   **Tailwind CSS 4**: Utility-first styling with the latest JIT engine integration.
+*   **Nginx (Static)**: High-performance delivery of compiled React assets with built-in reverse proxying for API requests.
+
+### Backend (APIs & Worker)
+*   **Flask 3.0**: Lightweight Python WSGI framework for routing and service logic.
+*   **Gunicorn**: Production-grade WSGI HTTP Server for handling concurrent backend requests.
+*   **Psycopg2**: Robust PostgreSQL adapter for Python.
+*   **Confluent-Kafka**: High-throughput distributed event streaming client.
+*   **Redis (Python)**: Low-latency caching client for redirection lookups.
+*   **Prometheus Client**: Instrumentation for real-time system metrics and monitoring.
+
+### Data & Messaging
+*   **PostgreSQL 15+**: Relational database management with Primary/Replica scaling.
+*   **Redis 7**: In-memory data structure store for ultra-fast cache resolution.
+*   **Apache Kafka & Zookeeper**: Distributed event broker for asynchronous telemetry and logging.
+*   **Docker & Docker Compose**: Container-level orchestration for environment consistency.
+
+---
+
 ## Component Design Reasoning
 
 Every component within the infrastructure was carefully chosen to solve strict bottlenecks occurring at immense scale:
 
-* **Nginx Load Balancer**: Acting as the tip of the spear, it serves as a unified routing endpoint. It seamlessly proxies external static UI traffic and internal asynchronous API requests simultaneously while securely mitigating connection concurrency limits.
-* **Redis Caching**: Integrated intentionally to structurally accelerate short code redirection lookups. Serving repeated heavy read requests directly from RAM completely bypasses disk input output bottlenecks, drastically lowering overall system latency and instantly freeing database constraints.
-* **PostgreSQL (Primary and Replica Separation)**: Enforces robust structural data integrity. Utilizing a primary database strictly for write operations while forcing an isolated replica server to handle reads guarantees maximum parallel performance limits. This methodology scales perfectly while establishing deep fault tolerance boundaries without table locking collisions.
-* **Kafka and Zookeeper Data Streaming**: Natively captures URL click streams and generic system diagnostic logs instantly upon HTTP redirection. Utilizing an event stream logically prevents the core API from getting clogged executing repetitive analytics computation. The backend thread effortlessly delegates the vast insertion overhead directly to an independent Kafka worker cluster gracefully.
+* **Nginx Load Balancer**: Acting as the "tip of the spear," it serves as a unified routing endpoint. It seamlessly proxies external static UI traffic and internal asynchronous API requests simultaneously while securely mitigating connection concurrency limits and eliminating CORS overhead.
+* **Redis Caching (LRU Strategy)**: Integrated intentionally to structurally accelerate short-code redirection lookups. Serving repeated heavy read requests directly from RAM completely bypasses disk I/O bottlenecks. The system implements a **Lazy-Loading** (Cache-Aside) strategy with a 1-hour TTL, drastically lowering overall system latency.
+* **PostgreSQL (Primary/Replica Separation)**: Enforces robust structural data integrity. Utilizing a primary database strictly for write operations (URL generation) while forcing an isolated replica server to handle reads (redirections) guarantees maximum parallel performance. This methodology scales horizontally while establishing deep fault tolerance boundaries without table-locking collisions.
+* **Kafka Event Pipeline**: Natively captures URL click streams and system diagnostic logs instantly upon HTTP redirection. Utilizing an event stream logically prevents the core API from getting clogged executing repetitive analytics computation.
+    * **Non-Blocking Producer**: The API implements a custom `KafkaEventSender` using a daemon thread and an in-memory queue. This ensures that even if Kafka is slow or unreachable, the critical path (URL redirection) is never blocked (Fire-and-Forget).
+* **Decoupled Worker**: An independent Python consumer that processes Kafka topics in batches and writes metadata to the offline analytics database, ensuring zero impact on the primary API's responsiveness.
+
+---
+
+## Database Optimization & Schema Design
+
+The system employs several low-level database optimizations to maintain performance as data grows:
+
+### 1. Advanced Indexing Strategy
+*   **B-Tree Indexes (`idx_urls_short_code`)**: Applied to the `short_code` column in both the `urls` and `clicks` tables. This enables O(log n) lookup speeds, essential for the high-frequency redirection path.
+*   **Time-Series Optimization (`idx_created_at`)**: Indexes on `created_at` timestamps across all tables (`urls`, `clicks`, `system_logs`) allow for near-instantaneous sorting and range-filtering for the analytics dashboard.
+*   **Unique Constraints**: Enforced on `urls.short_code` at the database level to guarantee collision-free URL generation even under high concurrency.
+
+### 2. Schema Architecture
+The data model is split into two distinct databases to isolate concerns:
+*   **Primary DB (`urls`)**: Optimized for high-integrity write operations and read-replica synchronization.
+*   **Analytics DB (`clicks`, `system_logs`)**: Optimized for heavy append-only write volume from the Kafka workers and complex aggregation queries from the Analytics API.
 
 ## Request Flow Logic
 

@@ -8,8 +8,6 @@ import time
 import psycopg2
 import redis
 from flask import Flask, request, jsonify, redirect
-from confluent_kafka import Producer
-from prometheus_client import Counter, generate_latest
 from config import Config
 from urllib.parse import urlparse
 
