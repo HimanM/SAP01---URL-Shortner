@@ -1,13 +1,15 @@
 graph TD
-    Client((Client App)) -.->|HTTP 8000| Nginx[Primary Nginx Load Balancer]
+    Client((Client App)) -.->|HTTP 3000| FrontendNginx[Frontend Nginx Container]
+    Client -.->|HTTP 8000| MainNginx[Primary Nginx Load Balancer]
     
     subgraph Frontend Subystem
-        Nginx <-->|Port 3000| React[React SPA Interface]
+        FrontendNginx <-->|Serves Static Files| React[React SPA Interface]
+        FrontendNginx -.->|Proxies /api| MainNginx
     end
 
     subgraph Service Tier
-        Nginx <-->|/api| API(Python Flask API Service)
-        Nginx <-->|/analytics| Analytics(Python Analytics API)
+        MainNginx <-->|/api| API(Python Flask API Service)
+        MainNginx <-->|/analytics| Analytics(Python Analytics API)
     end
     
     subgraph Storage Tier

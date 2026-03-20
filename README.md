@@ -25,15 +25,17 @@ The core philosophy revolves around decoupling reads from writes, enforcing stat
 
 ```mermaid
 graph TD
-    Client((Client App)) -.->|HTTP 8000| Nginx[Primary Nginx Load Balancer]
+    Client((Client App)) -.->|HTTP 3000| FrontendNginx[Frontend Nginx Container]
+    Client -.->|HTTP 8000| MainNginx[Primary Nginx Load Balancer]
     
-    subgraph Frontend Subystem
-        Nginx <-->|Port 3000| React[React SPA Interface]
+    subgraph Frontend Subsystem
+        FrontendNginx <-->|Serves Static Files| React[React SPA Interface]
+        FrontendNginx -.->|Proxies /api| MainNginx
     end
 
     subgraph Service Tier
-        Nginx <-->|/api| API(Python Flask API Service)
-        Nginx <-->|/analytics| Analytics(Python Analytics API)
+        MainNginx <-->|/api| API(Python Flask API Service)
+        MainNginx <-->|/analytics| Analytics(Python Analytics API)
     end
     
     subgraph Storage Tier
@@ -59,14 +61,22 @@ graph TD
 ## Deep-Dive Layers
 
 ### 1. Load Balancing & Delivery Layer
-The edge network natively leverages Nginx to safely demultiplex dynamic API requirements and localized static UI routing concurrently, aggressively optimizing connection handshakes.
+The architecture deliberately employs a dual-Nginx proxying strategy to effectively eliminate cross-origin resource sharing (CORS) security exceptions while cleanly encapsulating frontend modules:
+
+1. **Frontend Proxy (`frontend/nginx.conf`)**: Rather than running a raw Node instance in production, compiled React files are packaged directly into a hyper-optimized Nginx container. It serves static UI assets natively on Port `3000`. Crucially, it dynamically intercepts any nested API requests designated for `/api/` or `/analytics/`, proxying them seamlessly to the main internal network router to bypass browser cross-origin limits.
+2. **Main Routing Gateway (`nginx/nginx.conf`)**: Serves as the centralized backend ingress exclusively handling localized downstream traffic (originating heavily from the frontend container proxy), securely routing traffic upstream to the dedicated Python APIs on Port `8000`.
 
 ```mermaid
 graph LR
-    Client((User Traffic)) -->|HTTP/8000| Nginx[Main Nginx Proxy]
-    Nginx -->|/api/*| API[API Python Container]
-    Nginx -->|/analytics/*| Analytics[Analytics Python Container]
-    Nginx -->|/*| Frontend[React UI Container]
+    Client((User Browser)) -->|HTTP:3000| Frontend[Frontend Nginx Proxy]
+    Client -->|HTTP:8000| BackGateway[Main Nginx Gateway]
+    
+    Frontend -->|Local / Route| ReactUI[React Compiled Assets]
+    Frontend -->|Internal Proxy /api/*| BackGateway
+    Frontend -->|Internal Proxy /analytics/*| BackGateway
+    
+    BackGateway -->|Upstream /api/*| API[API Python Container]
+    BackGateway -->|Upstream /analytics/*| Analytics[Analytics Python Container]
 ```
 
 ### 2. Primary / Replica Data Layer
@@ -179,6 +189,13 @@ To execute the infrastructure mapping, your local environment requires:
 * Docker Engine (v24.0 or newer)
 * Docker Compose Module (v2.0 or newer)
 * Ports `3000` and `8000` clear of localized bindings
+
+## Developer Workflow & Local Routing
+
+If you are modifying the UI natively and do not want to constantly rebuild the Nginx Container via Docker, you can execute the React app directly via Node.js (`npm run dev`).
+
+**The `vite.config.js` Proxy:**
+In a production container, `frontend/nginx.conf` physically manages routing. However, when executing `npm run dev` locally, the `vite.config.js` mirrors this logic natively. It establishes a hot-reloading development server that intercepts any local calls mapping to `/api/` or `/analytics/` and dynamically shifts them into your Dockerized backend `http://localhost:8000` so CORS restrictions are entirely mitigated even outside the container!
 
 ## Deployment Guide
 
