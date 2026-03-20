@@ -141,6 +141,8 @@ graph TD
     Worker -->|Execute Database Insert| AnalyticsDB[(Analytics Database)]
     AnalyticsAPI[Analytics Service] -->|Provide Dashboard API| AnalyticsDB
 ```
+
+    Note: Kafka publishing is fully decoupled from request handling — events are enqueued and sent asynchronously (fire-and-forget) by a background sender implemented in `api/kafka_sender.py`. This prevents telemetry or analytics latency from impacting API responsiveness.
 ## Folder Structure
 
 The repository is modularized natively by service borders to ensure complete execution isolation.
@@ -209,6 +211,7 @@ Every component within the infrastructure was carefully chosen to solve strict b
 1. Simultaneously, during any redirection procedure, the background API actively emits a silent, zero wait click event directly into a designated Kafka topic cluster.
 2. The assigned worker container independently consumes this distinct traffic threshold and strictly writes metadata into the offline analytics database. This directly ensures the primary API request loops effectively remain unblocked, fully lightweight, and highly performant at vast processing scales.
 3. Distinct application events (Database writes, Cache misses, Replica hits) are simultaneously serialized onto a system logs topic, organically serving as a comprehensive application audit trail dynamically accessible directly via the frontend metrics dashboard tab.
+4. Implementation detail: the API uses a non-blocking, in-memory queue and daemon thread to publish events (see `api/kafka_sender.py`). Events may be dropped when the queue is full to guarantee zero blocking in the critical path.
 
 ## Prerequisites & Output
 

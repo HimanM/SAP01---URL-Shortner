@@ -2,6 +2,9 @@ import os
 import json
 import string
 import random
+import threading
+import queue
+import time
 import psycopg2
 import redis
 from flask import Flask, request, jsonify, redirect
@@ -18,22 +21,30 @@ def get_db_connection(replica=False):
     return psycopg2.connect(host=host, database=Config.DB_NAME, user=Config.DB_USER, password=Config.DB_PASS)
 
 def log_system_event(level, msg):
-    if producer:
-        try:
-            event = {"level": level, "message": msg, "source": "api"}
-            producer.produce('system_logs', value=json.dumps(event).encode('utf-8'))
-            producer.flush(0)
-        except:
-            pass
+    try:
+        event = {"level": level, "message": msg, "source": "api"}
+        # fire-and-forget send
+        send_kafka('system_logs', json.dumps(event).encode('utf-8'))
+    except Exception:
+        pass
 
 r = redis.Redis(host=Config.REDIS_HOST, port=Config.REDIS_PORT, db=0, decode_responses=True)
 
 kafka_conf = {'bootstrap.servers': Config.KAFKA_BROKER}
-try:
-    producer = Producer(kafka_conf)
-except Exception as e:
-    print(f"Failed to connect to Kafka: {e}")
-    producer = None
+
+from kafka_sender import KafkaEventSender
+
+
+# single shared sender instance
+kafka_sender = KafkaEventSender(kafka_conf)
+
+
+def send_kafka(topic, value):
+    try:
+        if kafka_sender and kafka_sender.available():
+            kafka_sender.send(topic, value)
+    except Exception:
+        pass
 
 def generate_short_code(length=6):
     chars = string.ascii_letters + string.digits
@@ -100,15 +111,16 @@ def redirect_to_url(short_code):
         else:
             return jsonify({"error": "Not Found"}), 404
             
-    # Produce Kafka Event
-    if producer:
+    # Produce Kafka Event (fire-and-forget)
+    try:
         event = {
             "short_code": short_code,
             "ip_address": request.remote_addr,
             "user_agent": request.headers.get('User-Agent', '')
         }
-        producer.produce('url_clicks', value=json.dumps(event).encode('utf-8'))
-        producer.flush(0) # trigger delivery callbacks
+        send_kafka('url_clicks', json.dumps(event).encode('utf-8'))
+    except Exception:
+        pass
         
     return redirect(target_url, code=302)
 
