@@ -31,7 +31,7 @@ The core philosophy revolves around decoupling reads from writes, enforcing stat
 
 <figure style="max-width:1100px; margin:0 0 12px 0;">
     <img src="docs/ArchitectureDiagram.png" alt="Architecture diagram" style="width:100%; height:auto; border:1px solid #e6e6e6; border-radius:6px;">
-    <figcaption style="font-size:12px; color:#555;">Architecture diagram (docs/.icons/ArchitectureDiagram.png)</figcaption>
+    <figcaption style="font-size:12px; color:#555;">Architecture diagram</figcaption>
 </figure>
 
 ## Screenshots
@@ -251,6 +251,11 @@ The entire structural framework actively provisions precisely out of the box dyn
    ```bash
    docker compose up --build -d
    ```
+   
+    <figure style="max-width:900px; margin:12px 0 18px 0;">
+         <img src="docs/docker.png" alt="Docker Compose ps output" style="width:100%; height:auto; border:1px solid #e6e6e6; border-radius:6px;">
+         <figcaption style="font-size:12px; color:#555;">Output of `docker compose -p sap01-url-shortner ps` showing running service containers</figcaption>
+    </figure>
 4. Access the unified React frontend cleanly via:
    `http://localhost:3000`
 
