@@ -1,0 +1,110 @@
+name: "sap01-url-shortner"
+
+services:
+
+  nginx:
+    image: nginx:latest
+    container_name: url-nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
+      - analytics
+
+  api:
+    build: ./api
+    environment:
+      - BASE_URL=${BASE_URL}
+      - DB_HOST=postgres-primary
+      - REDIS_HOST=url-redis
+      - KAFKA_BROKER=${KAFKA_BROKER}
+    depends_on:
+      postgres-primary:
+        condition: service_started
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+
+  analytics:
+    build: ./analytics
+    environment:
+      - DB_HOST=url-analytics-db
+    depends_on:
+      analytics-db:
+        condition: service_started
+
+  redis:
+    image: redis:latest
+    container_name: url-redis
+
+  postgres-primary:
+    image: bitnami/postgresql:latest
+    container_name: url-postgres-primary
+    environment:
+      - POSTGRESQL_DATABASE=${POSTGRES_DB}
+      - POSTGRESQL_USERNAME=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPL_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPL_PASSWORD}
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  postgres-replica:
+    image: bitnami/postgresql:latest
+    container_name: url-postgres-replica
+    depends_on:
+      postgres-primary:
+        condition: service_started
+    environment:
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_MASTER_HOST=url-postgres-primary
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPL_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPL_PASSWORD}
+
+  analytics-db:
+    image: postgres:15
+    container_name: url-analytics-db
+    environment:
+      - POSTGRES_DB=${ANALYTICS_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+
+  worker:
+    build: ./worker
+    environment:
+      - DB_HOST=url-analytics-db
+      - DB_NAME=${ANALYTICS_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - KAFKA_BROKER=${KAFKA_BROKER}
+    depends_on:
+      kafka:
+        condition: service_started
+      analytics-db:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
