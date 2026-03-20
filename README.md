@@ -1,27 +1,206 @@
-# SAP01 URL Shortener
+# Nexus URL Shortener
 
-This is the first project of learning system architecture. It securely implements core distributed system elements, orchestrating precise interactions between backend processing, stream ingestion, performant caching, and a responsive frontend interface.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](#)
+[![Flask](https://img.shields.io/badge/Flask-000000?style=flat&logo=flask&logoColor=white)](#)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=flat&logo=postgresql&logoColor=white)](#)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat&logo=redis&logoColor=white)](#)
+[![Kafka](https://img.shields.io/badge/Kafka-231F20?style=flat&logo=apachekafka&logoColor=white)](#)
+[![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=flat&logo=docker&logoColor=white)](#)
 
-## High Level Architecture
-The software comprises seamlessly integrated microservices:
-* Frontend Service: A modern, minimalistic React application powered by Vite, utilizing Tailwind CSS for structural styling. Delivered using an efficient multi stage Nginx Docker container.
-* API Service (Python/Flask): A stateless component solely responsible for mapping and generating short codes. This service conducts database writes for creation events and database reads against replicas during redirections.
-* Analytics Service (Python/Flask): A specialized backend dedicated strictly to retrieving aggregated event states, database performance metrics, and system log diagnostics.
-* Log Ingestion Worker: A persistent Python daemon running continuously. It polls Kafka topics to capture asynchronous click events and system trace logs, securely persisting them to the analytics database.
+This repository serves as the first primary project in learning and implementing decoupled, highly scalable system architecture. It strictly implements core distributed systems methodologies, orchestrating precise interactions between backend processing layers, stream data ingestion, performant in-memory caching, and a highly responsive frontend interface.
 
-## Architecture Flow
+## Table of Contents
+1. [System Architecture](#system-architecture)
+2. [Folder Structure](#folder-structure)
+3. [Component Design Reasoning](#component-design-reasoning)
+4. [Request Flow Logic](#request-flow-logic)
+5. [Prerequisites & Output](#prerequisites--output)
+6. [Deployment Guide](#deployment-guide)
+7. [API Endpoints](#api-endpoints)
 
-1. URL Shortening: The user submits a URL to the API. The API creates a unique identifier, stores it in the primary PostgreSQL database, and publishes a system log event to Kafka.
-2. Link Resolution: Accessing a short link checks the Redis cache first. On a cache miss, it reads from the PostgreSQL replica to minimize read pressure on the primary. It then updates the cache.
-3. Asynchronous Analytics: Upon redirection, the API emits a click event to a Kafka topic. The background worker independently consumes this stream and writes into the analytics database, ensuring the main request loop remains unblocked and highly performant.
-4. Logging: Distinct application events (Database writes, Cache misses) are serialized and delivered to a system logs topic, serving as a comprehensive application audit trail accessible via the frontend.
+## System Architecture
 
-## Component Reasoning
+The core philosophy revolves around decoupling reads from writes, enforcing stateless compute layers, and moving heavy metrics calculations completely out of the critical rendering path.
 
-* Nginx Load Balancer: Serves as a unified routing endpoint, seamlessly proxying static traffic and API requests while mitigating connection limits.
-* Redis Caching: Placed intentionally to accelerate short code redirection lookups. Serving repeated requests from RAM eliminates disk I/O bottlenecks and drastically lowers database latency.
-* PostgreSQL (Primary and Replica): Enforces structural data integrity. Utilizing a primary database strictly for write operations and an isolated replica strictly for reads guarantees robust parallel performance and fault tolerance.
-* Kafka and Zookeeper: Captures URL click streams and system diagnostic logs. Utilizing an event stream prevents the main API from getting clogged doing repetitive analytics and insertion computation.
+```mermaid
+graph TD
+    Client((Client App)) -.->|HTTP 8000| Nginx[Primary Nginx Load Balancer]
+    
+    subgraph Frontend Subystem
+        Nginx <-->|Port 3000| React[React SPA Interface]
+    end
 
-## Local Deployment
-The repository functions out of the box leveraging Docker Compose.
+    subgraph Service Tier
+        Nginx <-->|/api| API(Python Flask API Service)
+        Nginx <-->|/analytics| Analytics(Python Analytics API)
+    end
+    
+    subgraph Storage Tier
+        API -->|Insert URL| PrimaryDb[(PostgreSQL Primary Database)]
+        PrimaryDb -.->|Async Replication| ReplicaDb[(PostgreSQL Read Replica)]
+        API <-->|Redis Lookups| Redis[(Redis Speed Cache)]
+        API -->|Fallback Cache Miss| ReplicaDb
+    end
+    
+    subgraph Event Streaming Pipeline
+        API -->|Publish url_clicks| Kafka{{Kafka Event Broker}}
+        API -->|Publish system_logs| Kafka
+        Worker(Python Ingestion Worker) -->|Consume Topics| Kafka
+    end
+    
+    subgraph Analytics Data Layer
+        Worker -->|Insert click metadata| AnalyticsDb[(PostgreSQL Analytics Database)]
+        Worker -->|Insert system logs| AnalyticsDb
+        Analytics <-->|Select Metrics| AnalyticsDb
+    end
+```
+
+## Deep-Dive Layers
+
+### 1. Load Balancing & Delivery Layer
+The edge network natively leverages Nginx to safely demultiplex dynamic API requirements and localized static UI routing concurrently, aggressively optimizing connection handshakes.
+
+```mermaid
+graph LR
+    Client((User Traffic)) -->|HTTP/8000| Nginx[Main Nginx Proxy]
+    Nginx -->|/api/*| API[API Python Container]
+    Nginx -->|/analytics/*| Analytics[Analytics Python Container]
+    Nginx -->|/*| Frontend[React UI Container]
+```
+
+### 2. Primary / Replica Data Layer
+Structural I/O pressure is fundamentally decoupled. Generation logic targets the primary database strictly, while redirection reads fan-out across localized replicas mapping alongside the Redis runtime memory.
+
+```mermaid
+sequenceDiagram
+    participant API
+    participant Redis
+    participant Primary DB
+    participant Replica DB
+    
+    Note over API, Primary DB: POST /api/shorten (Write Mode)
+    API->>Primary DB: INSERT mapped original_url
+    
+    Note over API, Replica DB: GET /api/<short_code> (Read Mode)
+    API->>Redis: Query Cache Table
+    alt Cache Validation Hit
+        Redis-->>API: Return Cached Link
+    else Cache Validation Miss
+        API->>Replica DB: Query original_url
+        Replica DB-->>API: Return Database Link
+        API->>Redis: Refresh Key Variables
+    end
+```
+
+### 3. Asynchronous Telemetry Layer
+A fully independent operational data pipeline organically insulates the synchronous API operations from external metrics ingestion latency constraints.
+
+```mermaid
+graph TD
+    API((Active API Servce)) -->|Produce system_logs| Kafka{Confluent Kafka Broker}
+    API -->|Produce url_clicks| Kafka
+    Kafka -.->|Subscribe Stream| Worker[Detached Python Worker]
+    Worker -->|Execute Database Insert| AnalyticsDB[(Analytics Database)]
+    AnalyticsAPI[Analytics Service] -->|Provide Dashboard API| AnalyticsDB
+```
+## Folder Structure
+
+The repository is modularized natively by service borders to ensure complete execution isolation.
+
+```text
+SAP01-URL-Shortner/
+├── analytics/                 # Isolated Flask API dedicated to metric aggregation
+│   ├── app.py                 # Core routing logic
+│   ├── config.py              # Environment assignments
+│   ├── Dockerfile             # Alpine Python specification
+│   └── requirements.txt       # Dependencies
+├── api/                       # Core link generation and resolution API
+│   ├── app.py                 # Write and Read processing logic
+│   ├── config.py              # Cross service variable mapper
+│   ├── Dockerfile             # Gunicorn deployment container
+│   └── requirements.txt       # Kafka, Redis, and psycopg2 definitions
+├── db/                        # Initialization rules for raw containers
+│   ├── analytics.sql          # Ingestion tables (clicks, system_logs)
+│   └── urls.sql               # Primary mapping validation structure
+├── docs/                      # Graphing logic and rendering definitions
+│   └── architecture.mmd       # Mermaid diagram code
+├── frontend/                  # React User Interface
+│   ├── public/                # Static base objects
+│   ├── src/                   # Dynamic component mapping
+│   │   ├── App.jsx            # Dark mode Tailwind structure
+│   │   └── index.css          # Tailwind abstractions
+│   ├── Dockerfile             # Nginx optimized multi-stage builder
+│   ├── nginx.conf             # Proxies mitigating frontend CORS boundaries
+│   └── package.json           # Node configuration definitions
+├── nginx/                     # Primary network routing layer
+│   └── nginx.conf             # Upstream server load balancing logic
+├── worker/                    # Python polling daemon
+│   ├── Dockerfile             # Script containerization instructions
+│   ├── requirements.txt       # Confluent consumer dependencies
+│   └── worker.py              # Kafka parsing and database insertion mapping
+├── .env                       # Centralized global environment overrides
+├── docker-compose.yml         # Container mapping framework
+├── LICENSE                    # Security and permissions
+└── README.md                  # System operation definitions
+```
+
+## Component Design Reasoning
+
+Every component within the infrastructure was carefully chosen to solve strict bottlenecks occurring at immense scale:
+
+* **Nginx Load Balancer**: Acting as the tip of the spear, it serves as a unified routing endpoint. It seamlessly proxies external static UI traffic and internal asynchronous API requests simultaneously while securely mitigating connection concurrency limits.
+* **Redis Caching**: Integrated intentionally to structurally accelerate short code redirection lookups. Serving repeated heavy read requests directly from RAM completely bypasses disk input output bottlenecks, drastically lowering overall system latency and instantly freeing database constraints.
+* **PostgreSQL (Primary and Replica Separation)**: Enforces robust structural data integrity. Utilizing a primary database strictly for write operations while forcing an isolated replica server to handle reads guarantees maximum parallel performance limits. This methodology scales perfectly while establishing deep fault tolerance boundaries without table locking collisions.
+* **Kafka and Zookeeper Data Streaming**: Natively captures URL click streams and generic system diagnostic logs instantly upon HTTP redirection. Utilizing an event stream logically prevents the core API from getting clogged executing repetitive analytics computation. The backend thread effortlessly delegates the vast insertion overhead directly to an independent Kafka worker cluster gracefully.
+
+## Request Flow Logic
+
+### Link Generation
+1. A client submits a vast external URL to the `/api/shorten` securely mapped by Nginx.
+2. The core API instantly validates the structure and securely generates a unique alphanumeric identifier code.
+3. The original mapping is strictly inserted into the primary PostgreSQL database to guarantee absolute structural consistency.
+4. The system safely publishes an internal system log event back to the Kafka broker verifying successful payload processing logic.
+
+### Link Redirection
+1. Connecting clients access a localized short link passing exclusively through the main scalable router.
+2. The API actively checks the Redis cache engine first for near instant access rules.
+3. Upon experiencing a strict cache miss constraint, the service dynamically initiates a read from the attached PostgreSQL replica instance to fundamentally minimize read pressure against the write heavy primary.
+4. Finally, it securely updates the Redis cache memory constraints for future localized hits and initiates an HTTP redirect.
+
+### Asynchronous Analytics Logging
+1. Simultaneously, during any redirection procedure, the background API actively emits a silent, zero wait click event directly into a designated Kafka topic cluster.
+2. The assigned worker container independently consumes this distinct traffic threshold and strictly writes metadata into the offline analytics database. This directly ensures the primary API request loops effectively remain unblocked, fully lightweight, and highly performant at vast processing scales.
+3. Distinct application events (Database writes, Cache misses, Replica hits) are simultaneously serialized onto a system logs topic, organically serving as a comprehensive application audit trail dynamically accessible directly via the frontend metrics dashboard tab.
+
+## Prerequisites & Output
+
+To execute the infrastructure mapping, your local environment requires:
+* Docker Engine (v24.0 or newer)
+* Docker Compose Module (v2.0 or newer)
+* Ports `3000` and `8000` clear of localized bindings
+
+## Deployment Guide
+
+The entire structural framework actively provisions precisely out of the box dynamically leveraging Docker Compose.
+
+1. Clone the repository framework locally.
+2. Validate Docker Engine core variables.
+3. Natively execute the container build script completely within the repository base:
+   ```bash
+   docker compose up --build -d
+   ```
+4. Access the unified React frontend cleanly via:
+   `http://localhost:3000`
+
+## API Endpoints
+
+The API safely exposes functional automated paths logically located alongside core routes.
+
+### Actions
+* `POST /api/shorten`: Generates a fully optimized tracking link requiring JSON payload `{"url": "domain.com"}`.
+* `GET /api/<id>`: Standardized fast redirect endpoint querying Redis cache variables then safely escalating to DB replicas.
+
+### Diagnostics
+* `GET /analytics/system-stats`: Serves calculated quantitative data verifying database states mapping unique link engagements.
+* `GET /analytics/logs`: Aggregates the asynchronous Kafka logging boundaries outputting comprehensive system trace rules across all instances.

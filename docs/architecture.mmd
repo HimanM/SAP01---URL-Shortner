@@ -1,0 +1,30 @@
+graph TD
+    Client((Client App)) -.->|HTTP 8000| Nginx[Primary Nginx Load Balancer]
+    
+    subgraph Frontend Subystem
+        Nginx <-->|Port 3000| React[React SPA Interface]
+    end
+
+    subgraph Service Tier
+        Nginx <-->|/api| API(Python Flask API Service)
+        Nginx <-->|/analytics| Analytics(Python Analytics API)
+    end
+    
+    subgraph Storage Tier
+        API -->|Insert URL| PrimaryDb[(PostgreSQL Primary Database)]
+        PrimaryDb -.->|Async Replication| ReplicaDb[(PostgreSQL Read Replica)]
+        API <-->|Redis Lookups| Redis[(Redis Speed Cache)]
+        API -->|Fallback Cache Miss| ReplicaDb
+    end
+    
+    subgraph Event Streaming Pipeline
+        API -->|Publish url_clicks| Kafka{{Kafka Event Broker}}
+        API -->|Publish system_logs| Kafka
+        Worker(Python Ingestion Worker) -->|Consume Topics| Kafka
+    end
+    
+    subgraph Analytics Data Layer
+        Worker -->|Insert click metadata| AnalyticsDb[(PostgreSQL Analytics Database)]
+        Worker -->|Insert system logs| AnalyticsDb
+        Analytics <-->|Select Metrics| AnalyticsDb
+    end
