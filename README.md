@@ -10,6 +10,12 @@
 
 This repository serves as the first primary project in learning and implementing decoupled, highly scalable system architecture. It strictly implements core distributed systems methodologies, orchestrating precise interactions between backend processing layers, stream data ingestion, performant in-memory caching, and a highly responsive frontend interface.
 
+
+
+https://github.com/user-attachments/assets/93a38078-1ec1-4b50-b4c6-c3c408f8e8a9
+
+
+
 ## Table of Contents
 1. [System Architecture](#system-architecture)
 2. [Folder Structure](#folder-structure)
