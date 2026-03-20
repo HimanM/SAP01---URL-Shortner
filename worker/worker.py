@@ -64,9 +64,9 @@ def run_worker():
                         (short_code, ip_address, user_agent)
                     )
                     conn.commit()
-                    print(f"Recorded click for {short_code}")
+                    print(f"Recorded click for {short_code}", flush=True)
                 except Exception as e:
-                    print(f"DB Error: {e}")
+                    print(f"DB Error: {e}", flush=True)
                     conn.rollback()
             elif topic == 'system_logs':
                 level = event.get('level')
@@ -79,9 +79,9 @@ def run_worker():
                         (level, message, source)
                     )
                     conn.commit()
-                    print(f"Recorded log: {message}")
+                    print(f"Recorded log: {message}", flush=True)
                 except Exception as e:
-                    print(f"DB Log Error: {e}")
+                    print(f"DB Log Error: {e}", flush=True)
                     conn.rollback()
 
     except KeyboardInterrupt:

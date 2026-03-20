@@ -5,3 +5,6 @@ confluent-kafka==2.3.0
 gunicorn==21.2.0
 python-dotenv==1.0.0
 prometheus-client==0.19.0
+# Note: `urllib.parse` is part of the Python standard library and
+# does not require an external package. Imported in api/app.py as:
+# from urllib.parse import urlparse

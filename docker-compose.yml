@@ -137,5 +137,7 @@ services:
 
   frontend:
     build: ./frontend
+    depends_on:
+      - nginx
     ports:
       - "3000:80"

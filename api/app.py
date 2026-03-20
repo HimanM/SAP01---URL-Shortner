@@ -8,6 +8,7 @@ from flask import Flask, request, jsonify, redirect
 from confluent_kafka import Producer
 from prometheus_client import Counter, generate_latest
 from config import Config
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
@@ -44,6 +45,10 @@ def shorten_url():
     original_url = data.get('url')
     if not original_url:
         return jsonify({"error": "URL is required"}), 400
+        
+    parsed_url = urlparse(original_url)
+    if not all([parsed_url.scheme, parsed_url.netloc]) or parsed_url.scheme not in ['http', 'https']:
+        return jsonify({"error": "Invalid URL format. Must start with http:// or https://"}), 400
     
     short_code = generate_short_code()
     
