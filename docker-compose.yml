@@ -51,7 +51,7 @@ services:
       - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPL_USER}
       - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPL_PASSWORD}
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/urls.sql:/docker-entrypoint-initdb.d/init.sql
 
   postgres-replica:
     image: bitnami/postgresql:latest
@@ -74,7 +74,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/analytics.sql:/docker-entrypoint-initdb.d/init.sql
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
